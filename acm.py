@@ -1,15 +1,21 @@
 import click
+import json
 import pandas as pd
 from pathlib import Path
 from ahocorasick import Automaton
 from typing import List, Dict, Set, Union, Tuple
 from Bio import SeqIO
+from collections import defaultdict
 
-KmerDict = Dict[str, Dict[str, Dict[str, Union[Tuple[int, int], int]]
-#  {sequence: {gene_name: {"allele": allele_num,
-#                          "position": (start, stop)
-#                         }
-#   }
+Kmer = str
+GeneName = str
+AlleleName = str
+Position = Tuple[int, int]
+
+KmerDict = Dict[Kmer, Dict[GeneName, Dict[AlleleName, List[Position]]]]
+
+def kmer_dict():
+    return defaultdict(kmer_dict)
 
 def revcomp(sequence: str) -> str:
 
@@ -47,7 +53,7 @@ def match_kmers_to_reads(A: Automaton, *fastqs):
 
                 sequence = str(record.seq)
 
-                for _, kmer in A.iter(sequence)
+                for _, kmer in A.iter(sequence):
 
                     try:
                         kmer_counts[kmer] += 1
@@ -67,3 +73,53 @@ def coverage(covered_ranges, expected_length):
 
     return coverage_counts
 
+
+def end_to_end(loci_directory: Path, kmer_size: int) -> KmerDict:
+
+    # TODO refactor this
+
+    kmers = kmer_dict()
+
+    loci_fasta = loci_directory.glob('*.fasta')
+
+    for locus in loci_fasta:
+
+        locus_name = locus.stem
+
+        with locus.open('r') as f:
+
+            for record in SeqIO.parse(f, 'fasta'):
+
+                allele = str(record.id)
+
+
+                sequence = str(record.seq)
+                seq_length = len(sequence)
+                breaks = range(0, seq_length, kmer_size)
+
+                for start in breaks:
+                    stop = start + kmer_size
+
+                    if stop <= seq_length:
+
+                        kmer = sequence[start : stop]
+                        interval = (start, stop)
+
+                    else:
+                        # If the sequence doesn't divide evenly by the kmer
+                        # length, add a new full-length kmer to the very end
+                        kmer = sequence[-stop : ]
+                        interval = (seq_length - stop, seq_length)
+
+                    try:
+                        kmers[kmer][locus_name][allele].append(interval)
+                    except AttributeError:
+                        kmers[kmer][locus_name][allele] = [interval]
+
+                    rc_kmer = revcomp(kmer)
+                    try:
+                        kmers[rc_kmer][locus_name][allele].append(interval)
+                    except AttributeError:
+                        kmers[rc_kmer][locus_name][allele] = [interval]
+
+    kmers = json.loads(json.dumps(kmers))
