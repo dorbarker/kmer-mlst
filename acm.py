@@ -163,4 +163,61 @@ def align_kmers(
 
     return alignments
 
+def match_alleles(alignments):
 
+    # Must identify missing incomplete
+
+    potentially_novel = set()
+
+    allele_matches = {}
+
+    for locus in alignments:
+
+        full_length_matches = {allele: alignment
+                               for allele, alignment in
+                               alignments[locus].items()
+                               if all(alignment)}
+
+        allele_matches[locus] = full_length_matches
+
+
+    return allele_matches
+
+def call_alleles(allele_matches, gene_expected_lengths):
+
+    calls = {}
+
+    for locus in gene_expected_lengths:
+
+        # Locus either incomplete or not found
+        if locus not in allele_matches:
+            # Need logic for absent/truncated loci
+            continue
+
+        potential_matches = list(allele_matches[locus].keys())
+
+        # The happy case - one unambiguous allele match
+        if len(allele_matches[locus]) == 1:
+
+            calls[locus] = potential_matches[0]
+
+        # Multiple potential matches
+        else:
+            # Need logic to pick a winner, probably by the number of aligned
+            # kmers
+            continue
+
+    return calls
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.argument('loci', type=click.Path(exists=True))
+@click.argument('genome', type=click.Path(exists=True))
+def call(loci, genome):
+
+    click.echo(click.format_filename(loci))
+    click.echo(click.format_filename(genome))
