@@ -14,6 +14,8 @@ Position = Tuple[int, int]
 
 KmerDict = Dict[Kmer, Dict[GeneName, Dict[AlleleName, List[Position]]]]
 
+GeneLengths = Dict[GeneName, Dict[AlleleName, int]]
+
 def kmer_dict():
     return defaultdict(kmer_dict)
 
@@ -63,15 +65,13 @@ def match_kmers_to_reads(A: Automaton, *fastqs):
     return kmer_counts
 
 
-def coverage(covered_ranges, expected_length):
-
-    coverage_counts = [0 for _ in range(expected_length)]
+def coverage(alignment, covered_ranges, count):
 
     for interval in covered_ranges:
         for position in range(*interval):
-            coverage_counts[position] += 1
+            alignment[position] += count
 
-    return coverage_counts
+    return alignment
 
 
 def end_to_end(loci_directory: Path, kmer_size: int) -> KmerDict:
@@ -79,12 +79,14 @@ def end_to_end(loci_directory: Path, kmer_size: int) -> KmerDict:
     # TODO refactor this
 
     kmers = kmer_dict()
+    gene_expected_lengths = {}
 
     loci_fasta = loci_directory.glob('*.fasta')
 
     for locus in loci_fasta:
 
         locus_name = locus.stem
+        gene_expected_lengths[locus_name] = {}
 
         with locus.open('r') as f:
 
@@ -96,6 +98,8 @@ def end_to_end(loci_directory: Path, kmer_size: int) -> KmerDict:
                 sequence = str(record.seq)
                 seq_length = len(sequence)
                 breaks = range(0, seq_length, kmer_size)
+
+                gene_expected_lengths[locus_name][allele] = seq_length
 
                 for start in breaks:
                     stop = start + kmer_size
@@ -123,3 +127,40 @@ def end_to_end(loci_directory: Path, kmer_size: int) -> KmerDict:
                         kmers[rc_kmer][locus_name][allele] = [interval]
 
     kmers = json.loads(json.dumps(kmers))
+
+    return kmers, gene_expected_lengths
+
+
+def align_kmers(
+        kmer_counts: Dict[str, int],
+        kmer_scheme: KmerDict,
+        gene_expected_lengths: GeneLengths
+        ):
+
+    # For each kmer found, look up which gene(s) it came from, which alleles,
+    # and the number of kmers aligning to those positions
+
+    alignments = {}
+
+    for kmer, count in kmer_counts.items():
+
+        for locus in kmer_scheme[kmer]:
+
+            for allele in kmer_scheme[kmer][locus]:
+
+                try:
+                    alignment = alignments[locus][allele]
+
+                except KeyError:
+                    expected_length = gene_expected_lengths[locus][allele]
+                    alignment = [0 for _ in range(expected_length)]
+
+                covered_ranges = kmer_scheme[kmer][locus][allele]
+
+                alignment = coverage(alignment, covered_ranges, count)
+
+                alignments[locus][allele] = alignment
+
+    return alignments
+
+
