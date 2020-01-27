@@ -28,7 +28,7 @@ def revcomp(sequence: str) -> str:
             'C': 'G'
         }
 
-    return ''.join(complements[x] for x in reversed(seq))
+    return ''.join(complements[x] for x in reversed(sequence))
 
 
 def initialize_ac_automaton(kmers: KmerDict):
@@ -112,8 +112,8 @@ def end_to_end(loci_directory: Path, kmer_size: int) -> KmerDict:
                     else:
                         # If the sequence doesn't divide evenly by the kmer
                         # length, add a new full-length kmer to the very end
-                        kmer = sequence[-stop : ]
-                        interval = (seq_length - stop, seq_length)
+                        kmer = sequence[-kmer_size: ]
+                        interval = (seq_length - kmer_size, seq_length)
 
                     try:
                         kmers[kmer][locus_name][allele].append(interval)
@@ -215,9 +215,11 @@ def cli():
 
 
 @cli.command()
-@click.argument('loci', type=click.Path(exists=True))
-@click.argument('genome', type=click.Path(exists=True))
-def call(loci, genome):
+@click.option('-k', '--kmer-length', type=int, required=True)
+@click.argument('loci', type=click.Path(exists=True), nargs=1)
+@click.argument('genome', type=click.Path(exists=True), nargs=-1)
+def call(loci, genome, kmer_length):
 
-    click.echo(click.format_filename(loci))
-    click.echo(click.format_filename(genome))
+    # TODO: more elegant handling of str to Path conversion
+    kmer_scheme, gene_expected_lengths = end_to_end(Path(loci), kmer_length)
+    print(kmer_scheme)
