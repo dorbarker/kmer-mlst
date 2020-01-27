@@ -6,6 +6,7 @@ from ahocorasick import Automaton
 from typing import List, Dict, Set, Union, Tuple
 from Bio import SeqIO
 from collections import defaultdict
+from statistics import mean
 
 Kmer = str
 GeneName = str
@@ -35,8 +36,8 @@ def initialize_ac_automaton(kmers: KmerDict):
 
     A = Automaton()
 
-    for kmer in kmers.keys():
-        A.add_word(kmer)
+    for idx, kmer in enumerate(kmers.keys()):
+        A.add_word(kmer, (idx, kmer))
 
     A.make_automaton()
 
@@ -55,7 +56,7 @@ def match_kmers_to_reads(A: Automaton, *fastqs):
 
                 sequence = str(record.seq)
 
-                for _, kmer in A.iter(sequence):
+                for _, (_, kmer) in A.iter(sequence):
 
                     try:
                         kmer_counts[kmer] += 1
@@ -121,6 +122,7 @@ def end_to_end(loci_directory: Path, kmer_size: int) -> KmerDict:
                         kmers[kmer][locus_name][allele] = [interval]
 
                     rc_kmer = revcomp(kmer)
+
                     try:
                         kmers[rc_kmer][locus_name][allele].append(interval)
                     except AttributeError:
@@ -159,7 +161,12 @@ def align_kmers(
 
                 alignment = coverage(alignment, covered_ranges, count)
 
-                alignments[locus][allele] = alignment
+                try:
+                    alignments[locus][allele] = alignment
+
+                except KeyError:
+
+                    alignments[locus] = {allele: alignment}
 
     return alignments
 
@@ -192,7 +199,7 @@ def call_alleles(allele_matches, gene_expected_lengths):
         # Locus either incomplete or not found
         if locus not in allele_matches:
             # Need logic for absent/truncated loci
-            continue
+            calls[locus] = '0'
 
         potential_matches = list(allele_matches[locus].keys())
 
@@ -205,7 +212,18 @@ def call_alleles(allele_matches, gene_expected_lengths):
         else:
             # Need logic to pick a winner, probably by the number of aligned
             # kmers
+
+            # Test logic! Remove!
+            calls[locus] = potential_matches[0]
             continue
+
+            mean_coverage = [(mean(reads), allele)
+                             for allele, reads
+                             in calls[locus].items()]
+
+            _, allele = sorted(mean_coverage)[0]
+
+            calls[locus] = allele
 
     return calls
 
@@ -222,4 +240,14 @@ def call(loci, genome, kmer_length):
 
     # TODO: more elegant handling of str to Path conversion
     kmer_scheme, gene_expected_lengths = end_to_end(Path(loci), kmer_length)
-    print(kmer_scheme)
+    automaton = initialize_ac_automaton(kmer_scheme)
+
+    kmer_counts = match_kmers_to_reads(automaton, *[Path(g) for g in genome])
+
+    alignments = align_kmers(kmer_counts, kmer_scheme, gene_expected_lengths)
+
+    allele_matches = match_alleles(alignments)
+
+    calls = call_alleles(allele_matches, gene_expected_lengths)
+
+    print(calls)
