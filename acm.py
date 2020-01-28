@@ -1,9 +1,11 @@
 import click
-import gzip
+import gzip, bz2
 import json
 import pandas as pd
+import magic
 from pathlib import Path
 from ahocorasick import Automaton
+from functools import partial
 from typing import List, Dict, Set, Union, Tuple, Generator
 from Bio import SeqIO
 from collections import defaultdict
@@ -47,7 +49,17 @@ def initialize_ac_automaton(kmers: KmerDict):
 
 def yield_reads(reads: Path) -> Generator[str, None, None]:
 
-    with reads.open('r'):
+    mime_types = {
+            'text/plain': open,
+            'application/x-gzip':   partial(gzip.open, mode='rt'),
+            'application/gzip':     partial(gzip.open, mode='rt'),
+            'application/x-bzip2':  partial(bz2.open, mode='rt'),
+            'application/bzip2':    partial(bz2.open, mode='rt')
+    }
+
+    _open = mime_types[magic.from_file(reads, mime=True)]
+
+    with _open(reads):
 
         for record in SeqIO.parse(f, 'fastq'):
 
