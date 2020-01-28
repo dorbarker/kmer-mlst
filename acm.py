@@ -1,9 +1,10 @@
 import click
+import gzip
 import json
 import pandas as pd
 from pathlib import Path
 from ahocorasick import Automaton
-from typing import List, Dict, Set, Union, Tuple
+from typing import List, Dict, Set, Union, Tuple, Generator
 from Bio import SeqIO
 from collections import defaultdict
 from statistics import mean
@@ -43,25 +44,34 @@ def initialize_ac_automaton(kmers: KmerDict):
 
     return A
 
-def match_kmers_to_reads(A: Automaton, *fastqs):
+
+def yield_reads(reads: Path) -> Generator[str, None, None]:
+
+    with reads.open('r'):
+
+        for record in SeqIO.parse(f, 'fastq'):
+
+            sequence = str(record.seq)
+
+            yield sequence
+
+def match_kmers_to_reads(A: Automaton, *reads_paths) -> Dict[str, int]:
 
 
     kmer_counts = {}
 
-    for fastq in fastqs:
+    for reads in reads_paths:
 
-        with fastq.open('r') as f:
+        for record in yield_reads(reads):
 
-            for record in SeqIO.parse(f, 'fastq'):
+            sequence = str(record.seq)
 
-                sequence = str(record.seq)
+            for _, (_, kmer) in A.iter(sequence):
 
-                for _, (_, kmer) in A.iter(sequence):
-
-                    try:
-                        kmer_counts[kmer] += 1
-                    except KeyError:
-                        kmer_counts[kmer] = 1
+                try:
+                    kmer_counts[kmer] += 1
+                except KeyError:
+                    kmer_counts[kmer] = 1
 
     return kmer_counts
 
