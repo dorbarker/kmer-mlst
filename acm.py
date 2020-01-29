@@ -74,9 +74,7 @@ def match_kmers_to_reads(A: Automaton, *reads_paths) -> Dict[str, int]:
 
     for reads in reads_paths:
 
-        for record in yield_reads(reads):
-
-            sequence = str(record.seq)
+        for sequence in yield_reads(reads):
 
             for _, (_, kmer) in A.iter(sequence):
 
