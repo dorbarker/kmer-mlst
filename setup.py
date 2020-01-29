@@ -11,6 +11,7 @@ setup(
         install_requires=[
             'Click',
             'biopython',
+            'python-magic'
         ],
         entry_points={
             'console_scripts': [

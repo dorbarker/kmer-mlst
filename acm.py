@@ -230,12 +230,6 @@ def call_alleles(allele_matches, gene_expected_lengths):
 
         # Multiple potential matches
         else:
-            # Need logic to pick a winner, probably by the number of aligned
-            # kmers
-
-            # Test logic! Remove!
-            calls[locus] = potential_matches[0]
-            continue
 
             mean_coverage = [(mean(reads), allele)
                              for allele, reads
