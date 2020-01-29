@@ -57,9 +57,9 @@ def yield_reads(reads: Path) -> Generator[str, None, None]:
             'application/bzip2':    partial(bz2.open, mode='rt')
     }
 
-    _open = mime_types[magic.from_file(reads, mime=True)]
+    _open = mime_types[magic.from_file(str(reads), mime=True)]
 
-    with _open(reads):
+    with _open(reads) as f:
 
         for record in SeqIO.parse(f, 'fastq'):
 
