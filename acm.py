@@ -1,9 +1,12 @@
 import click
+import gzip, bz2
 import json
 import pandas as pd
+import magic
 from pathlib import Path
 from ahocorasick import Automaton
-from typing import List, Dict, Set, Union, Tuple
+from functools import partial
+from typing import List, Dict, Set, Union, Tuple, Generator
 from Bio import SeqIO
 from collections import defaultdict
 from statistics import mean
@@ -43,25 +46,42 @@ def initialize_ac_automaton(kmers: KmerDict):
 
     return A
 
-def match_kmers_to_reads(A: Automaton, *fastqs):
+
+def yield_reads(reads: Path) -> Generator[str, None, None]:
+
+    mime_types = {
+            'text/plain': open,
+            'application/x-gzip':   partial(gzip.open, mode='rt'),
+            'application/gzip':     partial(gzip.open, mode='rt'),
+            'application/x-bzip2':  partial(bz2.open, mode='rt'),
+            'application/bzip2':    partial(bz2.open, mode='rt')
+    }
+
+    _open = mime_types[magic.from_file(str(reads), mime=True)]
+
+    with _open(reads) as f:
+
+        for record in SeqIO.parse(f, 'fastq'):
+
+            sequence = str(record.seq)
+
+            yield sequence
+
+def match_kmers_to_reads(A: Automaton, *reads_paths) -> Dict[str, int]:
 
 
     kmer_counts = {}
 
-    for fastq in fastqs:
+    for reads in reads_paths:
 
-        with fastq.open('r') as f:
+        for sequence in yield_reads(reads):
 
-            for record in SeqIO.parse(f, 'fastq'):
+            for _, (_, kmer) in A.iter(sequence):
 
-                sequence = str(record.seq)
-
-                for _, (_, kmer) in A.iter(sequence):
-
-                    try:
-                        kmer_counts[kmer] += 1
-                    except KeyError:
-                        kmer_counts[kmer] = 1
+                try:
+                    kmer_counts[kmer] += 1
+                except KeyError:
+                    kmer_counts[kmer] = 1
 
     return kmer_counts
 
