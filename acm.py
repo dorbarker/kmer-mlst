@@ -10,6 +10,7 @@ from typing import List, Dict, Set, Union, Tuple, Generator
 from Bio import SeqIO
 from collections import defaultdict
 from statistics import mean
+import pickle
 
 Kmer = str
 GeneName = str
@@ -247,14 +248,19 @@ def cli():
 
 
 @cli.command()
-@click.option('-k', '--kmer-length', type=int, required=True)
-@click.argument('loci', type=click.Path(exists=True), nargs=1)
+@click.argument('scheme', type=click.Path(exists=True), nargs=1)
 @click.argument('genome', type=click.Path(exists=True), nargs=-1)
-def call(loci, genome, kmer_length):
+def call(scheme, genome):
 
-    # TODO: more elegant handling of str to Path conversion
-    kmer_scheme, gene_expected_lengths = end_to_end(Path(loci), kmer_length)
-    automaton = initialize_ac_automaton(kmer_scheme)
+    scheme_path = Path(scheme)
+    automaton_path = scheme_path.joinpath('automaton.pickle')
+    expected_length_path = scheme_path.joinpath('expected_lengths.json')
+
+    with automaton_path.open('rb') as a:
+        automaton = pickle.load(a)
+
+    with expected_length_path.open('r') as i:
+        gene_expected_lengths = json.load(i)
 
     kmer_counts = match_kmers_to_reads(automaton, *[Path(g) for g in genome])
 
@@ -264,4 +270,29 @@ def call(loci, genome, kmer_length):
 
     calls = call_alleles(allele_matches, gene_expected_lengths)
 
-    print(calls)
+
+@cli.command()
+@click.option('-k', '--kmer-length', type=int, required=True)
+@click.argument('loci', type=click.Path(exists=True), nargs=1)
+@click.argument('scheme', type=click.Path(exists=False), nargs=1)
+def build(loci, scheme, kmer_length):
+
+    loci_path = Path(loci)
+    scheme_path = Path(scheme)
+
+    scheme_path.mkdir(exist_ok=False)
+    automaton_path = scheme_path.joinpath('automaton.pickle')
+    expected_length_path = scheme_path.joinpath('expected_lengths.json')
+    kmer_scheme_path = scheme_path.joinpath('kmer_scheme.json')
+
+    kmer_scheme, gene_expected_lengths = end_to_end(loci_path, kmer_length)
+    automaton = initialize_ac_automaton(kmer_scheme)
+
+    with automaton_path.open('wb') as a:
+        pickle.dump(automaton, a)
+
+    with expected_length_path.open('w') as o:
+        json.dump(gene_expected_lengths, o, indent=4)
+
+    with kmer_scheme_path.open('w') as k:
+        json.dump(kmer_scheme, indent=4)
