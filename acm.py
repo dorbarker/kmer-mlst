@@ -164,8 +164,6 @@ def end_to_end(loci_directory: Path,
                         kmers[rc_kmer][locus_name][allele] = [interval]
                         alleles_kmers[locus_name][allele] = set([rc_kmer])
 
-    kmers = json.loads(json.dumps(kmers))
-    alleles_kmers = json.loads(json.dumps(alleles_kmers))
 
     return kmers, gene_expected_lengths, alleles_kmers
 
@@ -285,32 +283,35 @@ def call_alleles(allele_matches, gene_expected_lengths):
 
             mean_coverage = [(mean(reads), allele)
                              for allele, reads
-                             in calls[locus].items()]
-
-            _, allele = sorted(mean_coverage)[0]
+                             in allele_matches[locus].items()]
+            print(mean_coverage)
+            _, allele = sorted(mean_coverage)[-1]
 
             calls[locus] = allele
-
     return calls
 
 
 def load_model(scheme_parent):
 
     scheme_path = Path(scheme_parent)
-    kmer_scheme_path = scheme_path.joinpath('kmer_scheme.json')
+    kmer_scheme_path = scheme_path.joinpath('kmer_scheme.pickle')
     automaton_path = scheme_path.joinpath('automaton.pickle')
-    expected_length_path = scheme_path.joinpath('expected_lengths.json')
+    expected_length_path = scheme_path.joinpath('expected_lengths.pickle')
+    alleles_kmers_path = scheme_path.joinpath('alleles_kmers.pickle')
 
     with automaton_path.open('rb') as a:
         automaton = pickle.load(a)
 
-    with expected_length_path.open('r') as i:
-        gene_expected_lengths = json.load(i)
+    with expected_length_path.open('rb') as i:
+        gene_expected_lengths = pickle.load(i)
 
-    with kmer_scheme_path.open('r') as k:
-        kmer_scheme = json.load(k)
+    with kmer_scheme_path.open('rb') as k:
+        kmer_scheme = pickle.load(k)
 
-    return automaton, gene_expected_lengths, kmer_scheme
+    with alleles_kmers_path.open('rb') as j:
+        alleles_kmers = pickle.load(j)
+
+    return automaton, gene_expected_lengths, kmer_scheme, alleles_kmers
 
 
 @click.group()
@@ -323,7 +324,7 @@ def cli():
 @click.argument('genome', type=click.Path(exists=True), nargs=-1)
 def call(scheme, genome):
 
-    automaton, gene_expected_lengths, kmer_scheme = load_model(scheme)
+    automaton, gene_expected_lengths, kmer_scheme, alleles_kmers = load_model(scheme)
 
     kmer_counts = match_kmers_to_reads(automaton, *[Path(g) for g in genome])
 
@@ -332,12 +333,12 @@ def call(scheme, genome):
     allele_matches = refine_matches(match_alleles(alignments),
                                     alleles_kmers,
                                     kmer_scheme,
-                                    kemr_counts)
+                                    kmer_counts)
 
 
     calls = call_alleles(allele_matches, gene_expected_lengths)
 
-
+    print(calls)
 @cli.command()
 @click.option('-k', '--kmer-length', type=int, required=True)
 @click.argument('loci', type=click.Path(exists=True), nargs=1)
@@ -349,8 +350,9 @@ def build(loci, scheme, kmer_length):
 
     scheme_path.mkdir(exist_ok=False)
     automaton_path = scheme_path.joinpath('automaton.pickle')
-    expected_length_path = scheme_path.joinpath('expected_lengths.json')
-    kmer_scheme_path = scheme_path.joinpath('kmer_scheme.json')
+    expected_length_path = scheme_path.joinpath('expected_lengths.pickle')
+    kmer_scheme_path = scheme_path.joinpath('kmer_scheme.pickle')
+    alleles_kmers_path = scheme_path.joinpath('alleles_kmers.pickle')
 
     kmer_scheme, gene_expected_lengths, alleles_kmers = end_to_end(loci_path, kmer_length)
     automaton = initialize_ac_automaton(kmer_scheme)
@@ -358,8 +360,12 @@ def build(loci, scheme, kmer_length):
     with automaton_path.open('wb') as a:
         pickle.dump(automaton, a)
 
-    with expected_length_path.open('w') as o:
-        json.dump(gene_expected_lengths, o, indent=4)
+    with expected_length_path.open('wb') as o:
+        pickle.dump(gene_expected_lengths, o)
 
-    with kmer_scheme_path.open('w') as k:
-        json.dump(kmer_scheme, indent=4)
+    with kmer_scheme_path.open('wb') as k:
+        pickle.dump(kmer_scheme, k)
+
+    with alleles_kmers_path.open('wb') as j:
+        pickle.dump(alleles_kmers, j)
+
