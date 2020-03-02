@@ -87,14 +87,15 @@ def match_kmers_to_reads(A: Automaton, *reads_paths) -> Dict[str, int]:
                 except KeyError:
                     kmer_counts[kmer] = 1
 
-    return pd.DataFrame(pd.Series(kmer_counts, name='count'))
+    return pd.DataFrame(pd.Series(kmer_counts, name='count', dtype=int))
 
 
 def coverage(locus_allele_df: pd.DataFrame, expected_length: int):
 
     alignment = np.zeros(expected_length)
 
-    for _, row in locus_allele_df.iterrows():
+    for _, row in locus_allele_df.dropna().iterrows():
+
         alignment[row['start'] : row['stop']] += row['count']
 
     return alignment
@@ -275,7 +276,7 @@ def call_alleles(allele_matches, gene_expected_lengths):
             mean_coverage = [(mean(reads), allele)
                              for allele, reads
                              in allele_matches[locus].items()]
-            print(mean_coverage)
+
             _, allele = sorted(mean_coverage)[-1]
 
             calls[locus] = allele
@@ -327,6 +328,7 @@ def call(scheme, genome):
     calls = call_alleles(allele_matches, gene_expected_lengths)
 
     print(calls)
+
 @cli.command()
 @click.option('-k', '--kmer-length', type=int, required=True)
 @click.argument('loci', type=click.Path(exists=True), nargs=1)
