@@ -14,6 +14,11 @@ from collections import defaultdict
 from statistics import mean
 import pickle
 
+
+# Diagnostics
+import sys
+import cProfile
+
 Kmer = str
 GeneName = str
 AlleleName = str
@@ -217,7 +222,9 @@ def match_alleles(alignments):
 
     return allele_matches
 
-def refine_matches(allele_matches, alleles_kmers, kmer_scheme, kmer_counts):
+def refine_matches(allele_matches,
+                   kmer_scheme: pd.DataFrame,
+                   kmer_counts: pd.DataFrame):
 
     # Take the allele_matches counts
 
@@ -283,9 +290,8 @@ def call_alleles(allele_matches, gene_expected_lengths):
     return calls
 
 
-def load_model(scheme_parent):
+def load_model(scheme_path: Path):
 
-    scheme_path = Path(scheme_parent)
     kmer_scheme_path = scheme_path.joinpath('kmer_scheme.pickle')
     automaton_path = scheme_path.joinpath('automaton.pickle')
     expected_length_path = scheme_path.joinpath('expected_lengths.pickle')
@@ -302,19 +308,11 @@ def load_model(scheme_parent):
     return automaton, gene_expected_lengths, kmer_scheme
 
 
-@click.group()
-def cli():
-    pass
-
-
-@cli.command()
-@click.argument('scheme', type=click.Path(exists=True), nargs=1)
-@click.argument('genome', type=click.Path(exists=True), nargs=-1)
-def call(scheme, genome):
+def call_(scheme: Path, genomes: List[Path]):
 
     automaton, gene_expected_lengths, kmer_scheme = load_model(scheme)
 
-    kmer_counts = match_kmers_to_reads(automaton, *[Path(g) for g in genome])
+    kmer_counts = match_kmers_to_reads(automaton, *genomes)
 
     alignments = align_kmers(kmer_counts, kmer_scheme, gene_expected_lengths)
 
@@ -327,7 +325,26 @@ def call(scheme, genome):
     allele_matches = match_alleles(alignments)
     calls = call_alleles(allele_matches, gene_expected_lengths)
 
-    print(calls)
+    diag_name = genomes[0].parent.name
+    pd.DataFrame(calls, index=[diag_name]).to_csv(sys.stdout) # temporary hack solution
+
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.argument('scheme', type=click.Path(exists=True), nargs=1)
+@click.argument('genome', type=click.Path(exists=True), nargs=-1)
+def call(scheme, genome):
+
+    # click shenannigans
+    scheme_path = Path(scheme)
+    genome_path = [Path(g) for g in genome]
+
+    call_(scheme_path, genome_path)
+
 
 @cli.command()
 @click.option('-k', '--kmer-length', type=int, required=True)
