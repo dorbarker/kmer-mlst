@@ -58,23 +58,9 @@ def initialize_ac_automaton(kmers: pd.DataFrame):
 
 def yield_reads(reads: Path) -> Generator[str, None, None]:
 
-    mime_types = {
-            'text/plain': open,
-            'application/x-gzip':   partial(gzip.open, mode='rt'),
-            'application/gzip':     partial(gzip.open, mode='rt'),
-            'application/x-bzip2':  partial(bz2.open, mode='rt'),
-            'application/bzip2':    partial(bz2.open, mode='rt')
-    }
+    with reads.open('r') as f:
 
-    _open = mime_types[magic.from_file(str(reads), mime=True)]
-
-    with _open(reads) as f:
-
-        for record in SeqIO.parse(f, 'fastq'):
-
-            sequence = str(record.seq)
-
-            yield sequence
+        yield from itertools.islice(f, 1, None, 4)
 
 def match_kmers_to_reads(A: Automaton, *reads_paths) -> Dict[str, int]:
 
