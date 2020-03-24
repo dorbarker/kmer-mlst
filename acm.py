@@ -85,7 +85,7 @@ def coverage(locus_allele_df: pd.DataFrame, expected_length: int):
 
     alignment = np.zeros(expected_length)
 
-    for _, row in locus_allele_df.dropna().iterrows():
+    for _, row in locus_allele_df.iterrows():
 
         alignment[row['start'] : row['stop']] += row['count']
 
@@ -170,6 +170,7 @@ def align_kmers(
             kmer_scheme
                 .join(kmer_counts, on='kmer')
                 .groupby(['locus', 'allele'])
+                .dropna()
             )
 
 
