@@ -169,8 +169,8 @@ def align_kmers(
     locus_allele_groups = (
             kmer_scheme
                 .join(kmer_counts, on='kmer')
-                .groupby(['locus', 'allele'])
                 .dropna()
+                .groupby(['locus', 'allele'])
             )
 
 
