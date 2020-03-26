@@ -2,6 +2,7 @@ import click
 import gzip, bz2
 import json
 import pandas as pd
+import numpy as np
 import magic
 from pathlib import Path
 from ahocorasick import Automaton
@@ -38,11 +39,11 @@ def revcomp(sequence: str) -> str:
     return ''.join(complements[x] for x in reversed(sequence))
 
 
-def initialize_ac_automaton(kmers: KmerDict):
+def initialize_ac_automaton(kmers: pd.DataFrame):
 
     A = Automaton()
 
-    for idx, kmer in enumerate(kmers.keys()):
+    for idx, kmer in enumerate(set(kmers['kmer'])):
         A.add_word(kmer, (idx, kmer))
 
     A.make_automaton()
@@ -52,23 +53,9 @@ def initialize_ac_automaton(kmers: KmerDict):
 
 def yield_reads(reads: Path) -> Generator[str, None, None]:
 
-    mime_types = {
-            'text/plain': open,
-            'application/x-gzip':   partial(gzip.open, mode='rt'),
-            'application/gzip':     partial(gzip.open, mode='rt'),
-            'application/x-bzip2':  partial(bz2.open, mode='rt'),
-            'application/bzip2':    partial(bz2.open, mode='rt')
-    }
+    with reads.open('r') as f:
 
-    _open = mime_types[magic.from_file(str(reads), mime=True)]
-
-    with _open(reads) as f:
-
-        for record in SeqIO.parse(f, 'fastq'):
-
-            sequence = str(record.seq)
-
-            yield sequence
+        yield from itertools.islice(f, 1, None, 4)
 
 def match_kmers_to_reads(A: Automaton, *reads_paths) -> Dict[str, int]:
 
@@ -86,37 +73,38 @@ def match_kmers_to_reads(A: Automaton, *reads_paths) -> Dict[str, int]:
                 except KeyError:
                     kmer_counts[kmer] = 1
 
-    return kmer_counts
+    return pd.DataFrame(pd.Series(kmer_counts, name='count', dtype=int))
 
 
-def coverage(alignment: List[int],
-             covered_ranges: List[Position],
-             count: int
-             ) -> List[int]:
+def coverage(locus_allele_df: pd.DataFrame, expected_length: int):
 
-    for interval in covered_ranges:
-        for position in range(*interval):
-            alignment[position] += count
+    alignment = np.zeros(expected_length)
+
+    for _, row in locus_allele_df.iterrows():
+
+        alignment[row['start'] : row['stop']] += row['count']
 
     return alignment
 
 
 def end_to_end(loci_directory: Path,
                kmer_size: int
-               ) -> Tuple[KmerDict, GeneLengths, AlleleKmerDict]:
+               ) -> Tuple[pd.DataFrame, pd.Series]:
 
     # TODO refactor this
 
-    kmers = kmer_dict()
-    alleles_kmers = kmer_dict()
-
     gene_expected_lengths = {}
+
+    scheme_columns = ('kmer', 'allele', 'locus', 'start', 'stop')
+
+    scheme_dataframe = []
 
     loci_fasta = loci_directory.glob('*.fasta')
 
     for locus in loci_fasta:
 
         locus_name = locus.stem
+
         gene_expected_lengths[locus_name] = {}
 
         with locus.open('r') as f:
@@ -145,32 +133,21 @@ def end_to_end(loci_directory: Path,
                         kmer = sequence[-kmer_size: ]
                         interval = (seq_length - kmer_size, seq_length)
 
-                    try:
-                        kmers[kmer][locus_name][allele].append(interval)
-
-                        alleles_kmers[locus_name][allele].add(kmer)
-
-                    except AttributeError:
-                        kmers[kmer][locus_name][allele] = [interval]
-                        alleles_kmers[locus_name][allele] = set([kmer])
-
-
                     rc_kmer = revcomp(kmer)
+                    fwd_rec = [kmer, allele, locus_name, start, stop]
+                    rev_rec = [rc_kmer, allele, locus_name, start, stop]
 
-                    try:
-                        kmers[rc_kmer][locus_name][allele].append(interval)
-                        alleles_kmers[locus_name][allele].add(rc_kmer)
-                    except AttributeError:
-                        kmers[rc_kmer][locus_name][allele] = [interval]
-                        alleles_kmers[locus_name][allele] = set([rc_kmer])
+                    scheme_dataframe.append(fwd_rec)
+                    scheme_dataframe.append(rev_rec)
 
+    kmers = pd.DataFrame(scheme_dataframe, columns=scheme_columns)
 
-    return kmers, gene_expected_lengths, alleles_kmers
+    return kmers, gene_expected_lengths
 
 
 def align_kmers(
-        kmer_counts: Dict[str, int],
-        kmer_scheme: KmerDict,
+        kmer_counts: pd.DataFrame,
+        kmer_scheme: pd.DataFrame,
         gene_expected_lengths: GeneLengths
         ):
 
@@ -178,32 +155,34 @@ def align_kmers(
     # and the number of kmers aligning to those positions
 
     alignments = {}
+    start_stop = ['start', 'stop']
 
-    for kmer, count in kmer_counts.items():
+    kmers = kmer_scheme.join(kmer_counts, on='kmer')
 
-        for locus in kmer_scheme[kmer]:
 
-            for allele in kmer_scheme[kmer][locus]:
+    # Aggregate by locus and allele and join counts
+    locus_allele_groups = (
+            kmer_scheme
+                .join(kmer_counts, on='kmer')
+                .dropna()
+                .groupby(['locus', 'allele'])
+            )
 
-                try:
-                    alignment = alignments[locus][allele]
 
-                except KeyError:
-                    expected_length = gene_expected_lengths[locus][allele]
-                    alignment = [0 for _ in range(expected_length)]
+    for (locus, allele), kmer_df in locus_allele_groups:
 
-                covered_ranges = kmer_scheme[kmer][locus][allele]
+        alignment = coverage(kmer_df, gene_expected_lengths[locus][allele])
 
-                alignment = coverage(alignment, covered_ranges, count)
+        try:
 
-                try:
-                    alignments[locus][allele] = alignment
+            alignments[locus][allele] = alignment
 
-                except KeyError:
+        except KeyError:
 
-                    alignments[locus] = {allele: alignment}
+            alignments[locus] = {allele: alignment}
 
     return alignments
+
 
 def match_alleles(alignments):
 
@@ -225,7 +204,9 @@ def match_alleles(alignments):
 
     return allele_matches
 
-def refine_matches(allele_matches, alleles_kmers, kmer_scheme, kmer_counts):
+def refine_matches(allele_matches,
+                   kmer_scheme: pd.DataFrame,
+                   kmer_counts: pd.DataFrame):
 
     # Take the allele_matches counts
 
@@ -265,39 +246,25 @@ def call_alleles(allele_matches, gene_expected_lengths):
     calls = {}
 
     for locus in gene_expected_lengths:
-
-        # Locus either incomplete or not found
-        if locus not in allele_matches:
-            # Need logic for absent/truncated loci
-            calls[locus] = '0'
-
-        potential_matches = list(allele_matches[locus].keys())
-
-        # The happy case - one unambiguous allele match
-        if len(allele_matches[locus]) == 1:
-
-            calls[locus] = potential_matches[0]
-
-        # Multiple potential matches
-        else:
-
+        try:
             mean_coverage = [(mean(reads), allele)
                              for allele, reads
                              in allele_matches[locus].items()]
-            print(mean_coverage)
+
             _, allele = sorted(mean_coverage)[-1]
 
-            calls[locus] = allele
+        except IndexError:
+            allele = '0'
+
+        calls[locus] = allele
     return calls
 
 
-def load_model(scheme_parent):
+def load_model(scheme_path: Path):
 
-    scheme_path = Path(scheme_parent)
     kmer_scheme_path = scheme_path.joinpath('kmer_scheme.pickle')
     automaton_path = scheme_path.joinpath('automaton.pickle')
     expected_length_path = scheme_path.joinpath('expected_lengths.pickle')
-    alleles_kmers_path = scheme_path.joinpath('alleles_kmers.pickle')
 
     with automaton_path.open('rb') as a:
         automaton = pickle.load(a)
@@ -308,10 +275,27 @@ def load_model(scheme_parent):
     with kmer_scheme_path.open('rb') as k:
         kmer_scheme = pickle.load(k)
 
-    with alleles_kmers_path.open('rb') as j:
-        alleles_kmers = pickle.load(j)
+    return automaton, gene_expected_lengths, kmer_scheme
 
-    return automaton, gene_expected_lengths, kmer_scheme, alleles_kmers
+
+def call_(scheme: Path, genomes: List[Path]):
+
+    automaton, gene_expected_lengths, kmer_scheme = load_model(scheme)
+
+    kmer_counts = match_kmers_to_reads(automaton, *genomes)
+
+    alignments = align_kmers(kmer_counts, kmer_scheme, gene_expected_lengths)
+
+    # allele_matches = refine_matches(match_alleles(alignments),
+    #                                 alleles_kmers,
+    #                                 kmer_scheme,
+    #                                 kmer_counts)
+
+
+    allele_matches = match_alleles(alignments)
+    calls = call_alleles(allele_matches, gene_expected_lengths)
+
+    diag_name = genomes[0].parent.name
 
 
 @click.group()
@@ -324,21 +308,13 @@ def cli():
 @click.argument('genome', type=click.Path(exists=True), nargs=-1)
 def call(scheme, genome):
 
-    automaton, gene_expected_lengths, kmer_scheme, alleles_kmers = load_model(scheme)
+    # click shenannigans
+    scheme_path = Path(scheme)
+    genome_path = [Path(g) for g in genome]
 
-    kmer_counts = match_kmers_to_reads(automaton, *[Path(g) for g in genome])
-
-    alignments = align_kmers(kmer_counts, kmer_scheme, gene_expected_lengths)
-
-    allele_matches = refine_matches(match_alleles(alignments),
-                                    alleles_kmers,
-                                    kmer_scheme,
-                                    kmer_counts)
+    call_(scheme_path, genome_path)
 
 
-    calls = call_alleles(allele_matches, gene_expected_lengths)
-
-    print(calls)
 @cli.command()
 @click.option('-k', '--kmer-length', type=int, required=True)
 @click.argument('loci', type=click.Path(exists=True), nargs=1)
@@ -352,9 +328,8 @@ def build(loci, scheme, kmer_length):
     automaton_path = scheme_path.joinpath('automaton.pickle')
     expected_length_path = scheme_path.joinpath('expected_lengths.pickle')
     kmer_scheme_path = scheme_path.joinpath('kmer_scheme.pickle')
-    alleles_kmers_path = scheme_path.joinpath('alleles_kmers.pickle')
 
-    kmer_scheme, gene_expected_lengths, alleles_kmers = end_to_end(loci_path, kmer_length)
+    kmer_scheme, gene_expected_lengths = end_to_end(loci_path, kmer_length)
     automaton = initialize_ac_automaton(kmer_scheme)
 
     with automaton_path.open('wb') as a:
@@ -366,6 +341,4 @@ def build(loci, scheme, kmer_length):
     with kmer_scheme_path.open('wb') as k:
         pickle.dump(kmer_scheme, k)
 
-    with alleles_kmers_path.open('wb') as j:
-        pickle.dump(alleles_kmers, j)
 
