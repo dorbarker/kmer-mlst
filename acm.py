@@ -14,11 +14,6 @@ from collections import defaultdict
 from statistics import mean
 import pickle
 
-
-# Diagnostics
-import sys
-import cProfile
-
 Kmer = str
 GeneName = str
 AlleleName = str
@@ -301,7 +296,6 @@ def call_(scheme: Path, genomes: List[Path]):
     calls = call_alleles(allele_matches, gene_expected_lengths)
 
     diag_name = genomes[0].parent.name
-    pd.DataFrame(calls, index=[diag_name]).to_csv(sys.stdout) # temporary hack solution
 
 
 @click.group()
