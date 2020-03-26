@@ -251,29 +251,17 @@ def call_alleles(allele_matches, gene_expected_lengths):
     calls = {}
 
     for locus in gene_expected_lengths:
-
-        # Locus either incomplete or not found
-        if locus not in allele_matches:
-            # Need logic for absent/truncated loci
-            calls[locus] = '0'
-
-        potential_matches = list(allele_matches[locus].keys())
-
-        # The happy case - one unambiguous allele match
-        if len(allele_matches[locus]) == 1:
-
-            calls[locus] = potential_matches[0]
-
-        # Multiple potential matches
-        else:
-
+        try:
             mean_coverage = [(mean(reads), allele)
                              for allele, reads
                              in allele_matches[locus].items()]
 
             _, allele = sorted(mean_coverage)[-1]
 
-            calls[locus] = allele
+        except IndexError:
+            allele = '0'
+
+        calls[locus] = allele
     return calls
 
 
