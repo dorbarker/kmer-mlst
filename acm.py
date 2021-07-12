@@ -210,6 +210,26 @@ def match_alleles(alignments):
 
     return allele_matches
 
+def discard_conserved(matches, kmer_scheme, kmer_counts):
+
+    for locus, alleles in matches.items():
+
+        n_matched_alleles = len(alleles)
+
+
+        for allele in alleles:
+
+            try:
+
+                kmer_scheme[kmer][locus][allele]
+
+                n_matched_alleles += 1
+
+            except KeyError:
+                continue
+
+
+
 def call_alleles(allele_matches, gene_expected_lengths):
 
     calls = {}
